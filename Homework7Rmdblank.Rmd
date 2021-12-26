@@ -1,0 +1,389 @@
+---
+title: "Homework 7 R Markdown"
+author: "Rita Miller"
+date: '`r Sys.Date()`'
+output:
+  word_document:
+    fig_height: 4
+    fig_width: 4.5
+  pdf_document:
+    fig_height: 4
+    fig_width: 4.5
+  html_document:
+    fig_height: 4
+    fig_width: 4.5
+---
+
+
+```{r, setup, include=FALSE}
+#require(mosaic)   # Load additional packages here 
+library(ISLR)#for datasets
+library(randomForest)#to perform bagging
+library(tree)
+library(gbm)
+library(dplyr)
+library(ggformula)
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+#trellis.par.set(theme=theme.mosaic()) # change default color scheme for lattice
+knitr::opts_chunk$set(
+  tidy=FALSE,     # display code as typed
+  size="small")   # slightly smaller font for code
+```
+
+#### **Intellectual Property:**  
+These problems are the intellectual property of the instructors and may not be reproduced outside of this course.
+
+#### **Note**
+The autograders for this assignment are set up to assume that you are using the packages *tree, randomForest,* and *gbm*, **not** *xgboost* or *caret*.
+
+## Problem 1: Analyze Variables with Decision Trees
+
+In this problem, you will use decision trees to analyze the variables associated with which brand of orange juice customers choose to purchase.
+
+Data Set: Load the OJ data set, which is in the ISLR package.
+
+### Question 1 (1 point) OK
+
+After loading the OJ data set, make *STORE* and *StoreID* factor variables.  Set the random seed equal to 7 and take a random sample of 800 rows of the data. This will be the training data set; the remaining observations will be the validation set.
+```{r}
+my_hitters <- Hitters %>%
+ filter(!is.na(Salary)) %>%
+ mutate(log_salary = log(Salary)) %>%
+ select(-Salary)
+```
+
+Enter your R code below.
+
+**Code Answer**: 
+```{r, echo=TRUE}
+data("OJ")
+#dim(OJ) #1070 18
+OJ <- OJ %>%
+ mutate(STORE = factor(STORE),
+ StoreID = factor(StoreID))
+set.seed(7)#reproducibility
+#divide the dataset into training and test set
+groups = c(rep(1, 800), rep(2, 270)) # 1 represents the training set
+random_groups = sample(groups, 1070)
+in_train = (random_groups == 1)
+```
+
+### Question 2 (2 points) Ok
+
+Fit a tree to the training data, using Purchase as the response variable and all other variables as predictors.  Which variables were used in constructing the tree?  Select all that apply.
+
+Set	the	random	seed	to	7	again.	Then	perform	10-fold	cross-validation	to	compare	boosting	
+(using	the	same	parameters	as	in	the	previous	question)	to	multiple	linear	regression.
+
+```{r}
+set.seed(7)
+n = dim(my_hitters)[1]
+k = 10 # Using 10-fold CV
+groups = rep(1:k, length = n)
+cvgroups = sample(groups, n)
+boost_predict = numeric(length = n)
+linear_predict = numeric(length = n)
+data_used = my_hitters
+for(ii in 1:k){
+ groupi = (cvgroups == ii)
+ # Perform boosting on everything not in groupi
+ # Then predict values for groupi
+ boost = gbm(log_salary ~ ., data = data_used[!groupi, ],
+ distribution = "gaussian", n.trees = 5000,
+ shrinkage = .001, interaction.depth = 4)
+
+ boost_predict[groupi] = predict(boost, newdata = data_used[groupi, ],
+n.trees = 5000, type = "response")
+
+ # Perform linear regression on everything not in groupi
+ # Then predict values for groupi
+ linear = lm(log_salary ~ ., data = data_used[!groupi, ])
+ linear_predict[groupi] = predict(linear, newdata = data_used[groupi, ])
+}
+```
+
+
+
+
+
+
+```{r}
+my_tree = tree(Purchase ~ ., data = OJ[in_train, ] )
+summary(my_tree)
+```
+**Multiple SELECT Answer (AUTOGRADED on Canvas)**: 
+
+- LoyalCH <-----
+- Store
+- PriceDiff <----
+- SalePriceCH <----
+- PriceMM
+- StoreID
+
+### Question 3 (2 points) Ok
+
+What is the error rate on the training set?  Enter your answer to 4 decimal places.
+
+**Numeric Answer (AUTOGRADED on Canvas)**:  0.1625
+
+### Question 4 (2 points)
+
+Plot the decision tree with category labels.  Use **Insert** -> **Image** to upload your graph to this question on Canvas.
+
+
+**Graph Answer**  : 
+```{r,echo=FALSE}
+par(mar = c(.1, .1, .1, .1))#used to set the margins of the graphing parameters
+plot(my_tree)
+text(my_tree, pretty = 0)
+dev.off
+```
+
+### Question 5 (2 points) 
+For the decision tree you just uploaded, write 3–5 sentences interpreting the fitted model.  Your interpretation should include the phrase "This makes sense because..."
+
+- Note that `PriceDiff` represents (Sale Price of MM) - (Sale Price of CH).  So, negative values of `PriceDiff` mean that Minute Maid is cheaper.
+
+**Text Answer**: 
+The	data	set	contains	several	variables	that	people	who	are	familiar	with	
+baseball	would	expect	to	be	correlated	(such	as	at-bats,	hits,	and	runs);	high	correlations	
+are	confirmed	using	pairs()	and	corrplot().	Using	random	forests	will	enable	us	to	reduce	
+the	correlations	in	the	predictions	that	stem	from	having	correlated	variables,	by	choosing	
+from	among	a	subset of	variables	at	each	node.	This	is	likely	to	reduce	the	variance	in	our	
+estimates.  
+
+### Question 6 (2 points) 
+
+Compute the confusion matrix for the validation set.  What is the validation set error rate?  Give your answer to 4 decimal places.
+
+**Numeric Answer (AUTOGRADED on Canvas)**:  0.1926
+```{r,echo=FALSE}
+#measure how well the model is doing on the test dataset. 
+#Start by computing the predictions on the test dataset. 
+preds = predict(my_tree, newdata = OJ[!in_train,], type = "class")
+conf_mat = table(preds, OJ$Purchase[!in_train])
+conf_mat
+#(18+34)/(18+34+131+87)
+```
+
+```{r}
+sum(diag(conf_mat))/270 #Accuracy
+1-sum(diag(conf_mat))/270 #Error rate on the test set
+```
+
+### Question 7 (2 points)
+
+Set the random seed to 7 again.  Use `cv.tree` to perform 10-fold cross-validation on the training data to choose the number of leaves that minimizes the classification error rate.  What are the optimal numbers of leaves? Select all that apply.
+
+**Multiple SELECT Answer (AUTOGRADED on Canvas)**:  One or more of 1, 2, 3, 4, 5, 6, 7, 8, 9  -----> 8, 4 
+
+```{r}
+set.seed(7)
+oj.cv = cv.tree(my_tree, FUN = prune.misclass)
+oj.cv 
+```
+### Question 8 (1 point) 
+
+Create a pruned tree with 4 leaves.  What is the error rate of the pruned tree on the validation set?  Give your answer to 4 decimal places.
+
+**Numeric Answer (AUTOGRADED on Canvas)**:  0.1926 
+```{r,echo=FALSE}
+#plot(oj.cv)
+prune_oj = prune.misclass(my_tree, best = 4)
+#plot(prune_oj)
+#text(prune_oj, pretty = 0)
+```
+```{r}
+preds = predict(my_tree, newdata = OJ[!in_train,], type = "class")
+conf_mat1 = table(preds, OJ$Purchase[!in_train])
+conf_mat1
+```
+
+
+```{r}
+sum(diag(conf_mat1))/270 #Accuracy
+1-sum(diag(conf_mat1))/270 #Error rate on the test set
+```
+
+#FYI: there's no difference b/w pruned and unpruned since they have the same amount of classification errors.
+
+## Problem 2: Use Boosting to Predict Salaries
+
+In this problem, you will use boosting to predict the salaries of baseball players.
+
+Data Set: Load the Hitters data set; it's in the ISLR package.
+
+### Question 9 (2 points) 
+
+After loading the Hitters data set, remove the observations with unknown salary.  **Create a new variable** equal to $\log(Salary)$, and then remove the original Salary variable.  
+
+Enter your R code below.
+
+**Code Answer**: 
+```{r, echo=TRUE}
+data("Hitters")
+#head(Hitters)
+dim(Hitters) #322 20
+#summary(Hitters)
+#remove the observations with unknwn salary
+Hitters = na.omit(Hitters)
+#new variable with log transformed for salary
+Hitters$logSalary = log(Hitters$Salary)
+
+#then remove the original Salary variable.
+#library(tidyverse)
+#Hitters <- Hitters%>%
+#  select(-Salary)
+```
+### Question 10 (1 point) 
+
+Perform boosting to predict log(Salary) in terms of the other variables in the data set (excluding Salary).  Use:
+
+* 5000 trees,  
+* a shrinkage parameter of .001, and  
+* an interaction depth of 4.  
+
+Which of the variables is most important for predicting log(Salary) in this model?
+
+**Multiple choice Answer (AUTOGRADED on Canvas)**:  one of  
+
+- CAtBat <---most
+- HmRun
+- CRuns 
+- Years
+
+```{r}
+boost = gbm(logSalary~ . -Salary, data = Hitters, distribution = "gaussian", n.trees = 5000, shrinkage = .001, interaction.depth = 4)
+predict(boost, newdata = Hitters, n.trees = 5000, type = "response")
+summary(boost)
+```
+### Question 11 (4 points) 
+Set the random seed to 7 again.  Then perform 10-fold cross-validation to compare boosting (using the same parameters as in the previous question) to multiple linear regression. 
+Enter your R code below.
+**Code Answer**: 
+```{r, echo=TRUE}
+set.seed(7) #reproducibility
+n = dim(Hitters)[1]
+k = 10 #number of  folds
+
+groups = rep(1:k, length = n)
+cvgroups = sample(groups, n)
+
+#boost_predict = numeric(length = n)
+data_used = Hitters
+
+#create empty vector to store predicted values
+allpredictedCVLM = rep(NA,n)
+allpredictedCVBoost = rep(NA,n)
+
+for(ii in 1:k){   
+  #set test set to equal to current i-th fold
+  groupi = (cvgroups == ii)
+  #fit linear model on training data
+  fitLM = lm(logSalary ~. -Salary, data = Hitters [!groupi, ])
+  
+  #test set for predictions
+  allpredictedCVLM[groupi] = predict.lm(fitLM, Hitters[groupi, ])
+  
+  #fit it to the above boosted model of the training data
+  boostFit = gbm(logSalary ~ .-Salary, data = Hitters[!groupi, ], 
+            distribution = "gaussian", n.trees = 5000, 
+           shrinkage = 0.001, interaction.depth = 4)
+  
+  #use the test set to generate predictions
+  allpredictedCVBoost[groupi] = predict(boostFit, 
+                                  newdata = Hitters[groupi, ], 
+                                  n.trees = 5000, type = "response")
+}#end iterations over folds
+
+#Calculate MSE for each model
+sum((allpredictedCVLM-Hitters$logSalary)^2)/n
+sum((allpredictedCVBoost-Hitters$logSalary)^2)/n
+```
+### What MSE do you find for each method?  Give your answers to 4 decimal places.
+0.4358 
+0.2212 
+
+#### Question 12 (1 point) 
+
+Boosting:CVBOOST = 0.2212
+
+#### Question 13 (1 point) 
+
+Linear regression:CVLM = 0.4358
+
+### Question 14 (1 point) 
+
+Based on MSE, which model is better for predicting log(Salary)?
+
+**Multiple choice Answer (AUTOGRADED on Canvas)**:  one of  
+
+- Boosting <----
+- Linear regression
+
+
+## Problem  3: Analyzing Salaries Through Bagging and Random Forests
+
+In this problem, you will continue your analysis of the salaries of baseball players using bagging and random forests.
+
+Data Set: Continue to use the Hitters data set.
+
+
+### Question 15 (2 points)
+
+Use `?Hitters` to view what each variable in the data set represents.  Examine some preliminary graphs and summaries of the data.  If we want to use decision trees to analyze this data set, why are random forests a good idea? Explain in 2-4 sentences.
+
+```{r}
+#summary(Hitters)
+library(car)
+vif(fitLM)
+```
+**Text Answer**: 
+
+We observed strong correlations among the predictor variables which could result in issues of multicollinearity. 
+This means that some pairs of variables could be predominant in the model. This is not good, since it could result in
+high variance which could lead to issues with over fitting. Random Forest (RF) reduces the correlation between the trees we generate and between the estimates we get out of them. Therefore, RF is most useful when there are strong correlations between predictors or when one or some predictors are much more informative about the response variable than the others. 
+
+### Question 16 (2 points)
+Set the random seed to 7 again.  Perform bagging to predict log(Salary) in terms of the other variables in the data set (excluding Salary).  Use all of the data points with non-missing salary.  What proportion of variation in log(Salary) can be explained by the bagged model?  Give your answer as a percentage between 0 and 100, to 2 digits after the decimal point.
+
+**Numeric Answer (AUTOGRADED on Canvas)**: 76.44%
+```{r, echo=TRUE}
+set.seed(7)
+Hitters_bagging = randomForest(logSalary~.-Salary, data = Hitters,
+                               mtry = 19, importance = TRUE)
+Hitters_bagging
+```
+### Question 17 (2 points) 
+Set the random seed to 7 again.  Use a random forest with 6 variables to predict log(Salary) in terms of the other variables in the data set (excluding Salary).  Use all of the data points with non-missing salary.
+```{r, echo=TRUE}
+set.seed(7)
+Hitters_bagging = randomForest(logSalary~.-Salary, data = Hitters,
+                               mtry = 6, importance = TRUE)
+Hitters_bagging
+```
+Which of the following variables is more important for predicting log(Salary) in the random forest model?
+```{r}
+importance(Hitters_bagging)
+varImpPlot(Hitters_bagging)
+```
+**Multiple choice Answer (AUTOGRADED on Canvas)**:  one of  
+	
+- Years <----
+- NewLeague
+
+### Question 18 (1 point) 
+Make a partial dependence plot of the variable you chose in the previous problem.  Use **Insert** -> **Image** to upload your graph to this question on Canvas.
+
+**Graph Answer**: 
+
+```{r}
+#PDP shows the effects of one predictor variable on the predicted response after averaging across all the other predictor variables
+partialPlot(Hitters_bagging, pred.data = Hitters, x.var = Years, which.class = "M")
+```
+### Question 19 (2 points)
+Write 2-4 sentences interpreting the relationship between predicted log(Salary) and the variable you selected in the previous two problems.  Include a possible explanation for the shape of the relationship.
+
+**Text Answer**:
+The	relationship	between	Years	and	predicted	log(Salary)	is	nonmonotonic.	Players	with	between	5	and	10	years	of	experience	are	predicted	to	have	the	highest	salaries,	while	players	with	more	and	less	experience	are	predicted	to	have	lower	salaries.	One	possible	explanation	is	that	after	players	reach	a	certain	age,	it	may	be	harder–or	perceived	to	be	harder–to	maintain	a	top	level	of	physical	fitness,	so	their	teams	pay	them	less. However,	this	is	based	on	data	from	only	two	seasons,	so	this	“trend	over	time”	may	not	hold.	Another	possibility	is	that	each	player’s	salary	is	roughly	constant	during	their	career,	but	the	more	experienced	players	started	their	careers	before	inflation	caused	a	big	jump in	starting	salaries.
+
