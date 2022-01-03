@@ -1,0 +1,221 @@
+---
+title: "Lesson 7 Examples--Decision Trees"
+author: "Abra Brisbin"
+date: "7/1/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message = FALSE}
+# To use readr, uncomment lines 16, 23, 45, 86, 141, 152
+# and comment out lines 24, 48, 87, 140, 153
+
+#library(readr) 
+library(tree)
+```
+
+# Can we predict whether an object is rock or metal based on its sonar reading?
+
+```{r}
+#sonar = read_csv("Sonar_rock_metal.csv", col_names = FALSE)
+sonar = read.csv("Sonar_rock_metal.csv", header = FALSE) #sonar dataset doesn't have a header row with the column names, hence header = FALSE, which assigned each column to V plus a column number. 
+head(sonar)
+```
+```{r}
+dim(sonar)#208 rows/observations and 61 columns, columns 1-60 are numerical predictor variables and col 61 is a categorical response variable that equals M for metal and R for rock. 
+```
+
+
+
+
+
+```{r}
+#divide the dataset into a training set and test set 
+set.seed(728)
+groups = c(rep(1, 140), rep(2, 68)) # 1 represents the training set with 140 rows
+random_groups = sample(groups, 208)
+
+in_train = (random_groups == 1)
+```
+
+```{r}
+# read_csv names the columns "X" + number
+#my_tree = tree(factor(X61) ~ ., data = sonar[in_train, ])
+
+#to fit the decision tree on the training set, we use the function "tree"
+# read.csv names the columns "V" + number
+my_tree = tree(factor(V61) ~ ., data = sonar[in_train, ])
+#"factor(V61) ~ ." this argument is a formula with the response/y variable using all of the other variables as predictor variables (~.) and since column 61 was read in as a character variable, the function factor is used to temporarily convert it into a factor variable. 
+summary(my_tree)
+```
+#Don't pay too much attention to the misclassification rate b/c it's the error rate on just the training set. 
+
+
+
+```{r}
+#pdf("Sonar.pdf") # If this file is open, this line will give an error
+#be careful b/c this will overwrite any file with this name in the working dir.
+
+par(mar = c(.1,.1,.1,.1))#used to set the margins of the graphing parameters
+plot(my_tree)
+text(my_tree, pretty = 0)#the text function will label each of the leaf nodes with the #predictions, and it will label each of the interior nodes with the variable being #used for the split.
+#The argument pretty = 0 can sometimes make those labels a bit easier to read.
+#dev.off()#once done creating the pdf, use this function to close the graphing utility, #so I can open and view the pdf
+```
+
+
+
+```
+To measure how well our model is doing on the test data set, we first need to compute
+the predictions on that test data set. 
+```
+
+```{r}
+preds = predict(my_tree, newdata = sonar[!in_train, ], type = "class")
+  # type = "class" returns predicted response classes
+#OR
+  # type = "vector" returns predicted probabilities
+```
+
+```
+We can compute the confusion matrix using the table function, as we've done in the past. And we can then compute the accuracy of our model using the diag function to get the diagonal elements from our confusion matrix,
+29 and 18, and then taking the sum of those.
+```
+
+
+```{r}
+#conf_mat = table(preds, sonar$X61[!in_train])
+conf_mat = table(preds, sonar$V61[!in_train])
+conf_mat
+```
+```{r}
+sum(diag(conf_mat)) / 68  # Accuracy
+1 - sum(diag(conf_mat))/68 # Error rate on the test set
+```
+
+```
+So here we see that we have an error rate of about 30%. So that's quite a bit worse on
+new data than our model was doing on the training set itself.
+```
+
+```
+If we want to do better, we might be able to do that by choosing an optimal number of leaf nodes for our tree using tenfold cross-validation. So we can do this using the cv.tree function.
+```
+
+## Use 10-fold CV to choose the optimal number of leaves
+```{r}
+set.seed(728)
+sonar.cv = cv.tree(my_tree, FUN = prune.misclass)#FUN/FUNCTION
+  # for regression problem, use prune.tree
+sonar.cv
+```
+```
+In this model, it looks pretty clear that 4 and 6 are the best
+sizes of tree that give us a deviance of 43.
+```
+```{r}
+plot(sonar.cv)
+```
+```
+we see that the error rate decreases as we increase the number of leaf nodes,
+and then it might increase again. As our tree becomes too complicated, it starts to
+overfit to the training data.
+```
+
+
+## Extracting the optimal number of leaves, as seen under size
+```{r}
+min(sonar.cv$dev)#finds the minimum value of the deviance
+which(sonar.cv$dev == min(sonar.cv$dev))#the which function will tell us which function of the deviance was equal to the minimum
+#So in other words, that's looking at our deviance here, saying, hey, 43 is the #minimum, and that occurs at locations 4 and 5 in this vector.
+#We could also do this using which.min, but that would only tell us about the first
+#location where the minimum happened.
+sonar.cv$size[ which(sonar.cv$dev == min(sonar.cv$dev)) ]
+#we can use square brackets on the size of sonar.dv, our variable name, to pick out #the values of size that correspond to those minimum deviance values.
+```
+
+
+
+```{r}
+prune_sonar = prune.misclass(my_tree,
+                             best = 4)
+plot(prune_sonar)
+text(prune_sonar, pretty = 0)
+```
+
+```{r}
+prune_sonar
+#prune_sonar$frame # If using readr, copy this into the console (it may not work in the .Rmd)
+```
+
+
+
+
+
+
+
+## Changing parameters about when to split the predictor space
+```{r}
+#detailed_tree = tree(factor(X61) ~ ., data = sonar,control = tree.control(nobs = 208, mindev = 0, minsize = 2))
+detailed_tree = tree(factor(V61) ~ ., data = sonar,control = tree.control(nobs = 208, mindev = 0, minsize = 2))
+
+pdf("Detailed_Sonar.pdf")
+plot(detailed_tree)
+text(detailed_tree)
+dev.off()
+```
+
+
+
+
+
+
+
+# Decision trees in caret
+In this example, we'll build a decision tree in caret to predict crime rates in Boston neighborhoods.
+
+To make decision trees in `caret`, we'll use the `rpart` package.  (Unfortunately, the `tree` package doesn't currently interface with `caret`.)
+```{r, message = FALSE}
+library(caret)
+library(MASS) # for Boston data
+library(rpart) # a different package for making trees
+
+library(rattle) # for fancy tree graph
+```
+
+We'll use 5-fold cross-validation to select an optimal value of *cp*, the complexity parameter.  This parameter tells R, "When we can’t find a split that improves the fit by at least this much, stop adding splits."  Therefore, lower cp values result in a more complex tree.
+
+```{r}
+
+set.seed(789)
+data_used = Boston
+
+ctrl = trainControl(method = "cv", number = 5)
+fit_crim = train(crim ~ ., 
+             data = data_used,
+             method = "rpart",
+             na.action = na.exclude,
+             tuneGrid = expand.grid(cp = seq(0, .15, by = .01)),
+             trControl = ctrl)
+
+fit_crim 
+
+```
+
+We can use the following code (from the `rattle` package) to make fancy graphs of `rpart` models.  In `caret`, the "finalModel" is the best model that `caret` found (in this case, `cp` = 0.13), fit on the whole data set.  This is the model we're graphing.
+```{r}
+fancyRpartPlot(fit_crim$finalModel)
+```
+
+Here, the interpretation would be:
+
+* The most important variable in predicted crime rate is accessibility to radial highways.  Areas with low accessibility (`rad` < 16) have the lowest predicted crime rate, 0.39.
+* For areas that are more accessible by highway, the median home value (`medv`) is important.  Areas where the median home value was less than $11,000 (in 1978) have the highest predicted crime rate, 25.
+
+We can view the details of the tree in the same way as we did for trees created using the `tree` package.  Notice that because this is a regression tree, each node is labeled with the mean crime rate of neighborhoods in that node, rather than a pair of probabilities.
+```{r}
+fit_crim$finalModel
+```
